@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+streamlit
+langgraph
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-generativeai
+
+python-dateutil
+python-dotenv
