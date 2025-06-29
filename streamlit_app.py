@@ -167,7 +167,7 @@ with col2:
     from urllib.parse import urlparse, parse_qs
 
     # 🧵 Title
-    st.title("🧵 TailorTalk AI - Smart Meeting Booker")
+    st.title(" TailorTalk AI - Smart Meeting Booker")
 
     # ✅ Check Google Calendar auth before continuing
     if not os.path.exists("token.pkl"):
