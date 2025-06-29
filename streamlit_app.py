@@ -5,8 +5,6 @@ from dateutil.parser import isoparse
 from datetime import timedelta
 import json
 import os
-from calendar_utils import get_auth_url, exchange_code_for_token
-from urllib.parse import urlparse, parse_qs
 
 st.set_page_config(page_title="TailorTalk AI", layout="wide")
 
