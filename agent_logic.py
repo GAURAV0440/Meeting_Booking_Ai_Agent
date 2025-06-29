@@ -5,7 +5,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph
 from datetime import datetime
 
-from .gemini_chain import run_gemini_chain  # ✅ Imported cleanly
+from gemini_chain import run_gemini_chain  # ✅ Imported cleanly
 from dotenv import load_dotenv
 import os
 
