@@ -3,6 +3,8 @@ from agent_logic import run_langgraph_agent
 from calendar_utils import is_time_slot_free, book_event_at
 from dateutil.parser import isoparse
 from datetime import timedelta
+import json
+import os
 
 st.set_page_config(page_title="TailorTalk AI", layout="wide")
 
@@ -27,6 +29,55 @@ if "selected_session" not in st.session_state:
 
 if "current_session_id" not in st.session_state:
     st.session_state.current_session_id = None
+
+if "calendar_available" not in st.session_state:
+    st.session_state.calendar_available = None
+
+# Function to check calendar availability
+def check_calendar_availability():
+    """Check if calendar service is available"""
+    try:
+        # Try to import and test calendar functions
+        from calendar_utils import is_time_slot_free
+        # Test with a simple call
+        test_result = is_time_slot_free("2024-01-01T10:00:00", "2024-01-01T11:00:00")
+        return True
+    except Exception as e:
+        st.error(f"Calendar service unavailable: {str(e)}")
+        return False
+
+# Function to create a mock booking result for demo purposes
+def create_mock_booking(start_time, duration_minutes, description, invitees):
+    """Create a mock booking result when calendar service is unavailable"""
+    end_time = start_time + timedelta(minutes=duration_minutes)
+    
+    # Create a mock Google Calendar link
+    start_str = start_time.strftime("%Y%m%dT%H%M%S")
+    end_str = end_time.strftime("%Y%m%dT%H%M%S")
+    
+    # Basic Google Calendar URL format
+    calendar_url = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={description}&dates={start_str}/{end_str}"
+    
+    return {
+        "start": start_time.isoformat(),
+        "end": end_time.isoformat(),
+        "link": calendar_url,
+        "description": description,
+        "invitees": invitees,
+        "mock": True
+    }
+
+# Function to save booking data locally (for demo/development)
+def save_booking_locally(booking_data):
+    """Save booking data to session state for demo purposes"""
+    if "local_bookings" not in st.session_state:
+        st.session_state.local_bookings = []
+    
+    st.session_state.local_bookings.append(booking_data)
+
+# Check calendar availability once
+if st.session_state.calendar_available is None:
+    st.session_state.calendar_available = check_calendar_availability()
 
 # Create two columns layout
 col1, col2 = st.columns([1, 2])
@@ -115,6 +166,10 @@ with col1:
 with col2:
     st.title("🧵 TailorTalk AI - Smart Meeting Booker")
     
+    # Show calendar service status
+    if not st.session_state.calendar_available:
+        st.warning("⚠️ Calendar service is currently unavailable. Running in demo mode - you'll get calendar links to manually add events.")
+    
     st.markdown("Try: `Book a meeting next Friday at 6 PM with john@example.com`")
     
     user_input = st.text_input("What would you like to schedule?")
@@ -131,7 +186,10 @@ with col2:
 
         if user_input.strip():
             with st.spinner("Understanding your request..."):
-                parsed = run_langgraph_agent(user_input)
+                try:
+                    parsed = run_langgraph_agent(user_input)
+                except Exception as e:
+                    parsed = {"error": f"Agent processing error: {str(e)}"}
 
             if "error" in parsed:
                 error_msg = f"LangGraph Error: {parsed['error']}"
@@ -142,74 +200,69 @@ with col2:
                 end = isoparse(parsed["end_time"])
                 invitees = parsed.get("invitees", [])
 
-                with st.spinner("Checking availability..."):
-                    if is_time_slot_free(start.isoformat(), end.isoformat()):
-                        result = book_event_at(start, 30, user_input, invitees)
+                with st.spinner("Processing booking..."):
+                    try:
+                        if st.session_state.calendar_available:
+                            # Try real calendar booking
+                            if is_time_slot_free(start.isoformat(), end.isoformat()):
+                                result = book_event_at(start, 30, user_input, invitees)
+                                
+                                start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
+                                end_fmt = isoparse(result['end']).strftime("%I:%M %p")
 
+                                success_msg = f"✅ Meeting booked from **{start_fmt} to {end_fmt}**. [View on Google Calendar]({result['link']})"
+                                st.success("✅ Meeting booked!")
+                                st.markdown(f"🕒 {start_fmt} to {end_fmt}")
+                                st.markdown(f"🔗 [View on Google Calendar]({result['link']})")
+                                st.session_state.messages.append({"role": "assistant", "content": success_msg})
+                                
+                            else:
+                                st.warning("⚠️ That time slot is already booked.")
+                                st.info("Here are some alternate time suggestions:")
+
+                                st.session_state.options = [
+                                    start + timedelta(hours=1),
+                                    start + timedelta(hours=2),
+                                    start + timedelta(hours=3)
+                                ]
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": "Time is busy. Suggested options: " + ", ".join(
+                                        slot.strftime("%A %I:%M %p") for slot in st.session_state.options
+                                    )
+                                })
+                        else:
+                            # Demo mode - create mock booking
+                            result = create_mock_booking(start, 30, user_input, invitees)
+                            save_booking_locally(result)
+                            
+                            start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
+                            end_fmt = isoparse(result['end']).strftime("%I:%M %p")
+
+                            success_msg = f"✅ Meeting scheduled from **{start_fmt} to {end_fmt}**. [Add to Google Calendar]({result['link']})"
+                            st.success("✅ Meeting scheduled! (Demo Mode)")
+                            st.markdown(f"🕒 {start_fmt} to {end_fmt}")
+                            st.markdown(f"🔗 [Add to Google Calendar]({result['link']})")
+                            st.info("📝 In demo mode - click the link above to manually add this event to your calendar")
+                            st.session_state.messages.append({"role": "assistant", "content": success_msg})
+                            
+                    except Exception as e:
+                        # Fallback to demo mode if calendar fails
+                        st.warning(f"Calendar service error: {str(e)}")
+                        st.info("Falling back to demo mode...")
+                        
+                        result = create_mock_booking(start, 30, user_input, invitees)
+                        save_booking_locally(result)
+                        
                         start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
                         end_fmt = isoparse(result['end']).strftime("%I:%M %p")
 
-                        success_msg = f"✅ Meeting booked from **{start_fmt} to {end_fmt}**. [View on Google Calendar]({result['link']})"
-                        st.success("✅ Meeting booked!")
+                        success_msg = f"✅ Meeting scheduled from **{start_fmt} to {end_fmt}**. [Add to Google Calendar]({result['link']})"
+                        st.success("✅ Meeting scheduled! (Demo Mode)")
                         st.markdown(f"🕒 {start_fmt} to {end_fmt}")
-                        st.markdown(f"🔗 [View on Google Calendar]({result['link']})")
+                        st.markdown(f"🔗 [Add to Google Calendar]({result['link']})")
+                        st.info("📝 Click the link above to manually add this event to your calendar")
                         st.session_state.messages.append({"role": "assistant", "content": success_msg})
-                        
-                        # Auto-save session after successful booking
-                        if st.session_state.current_session_id is None:
-                            session_title = f"Booking by {st.session_state.current_user}"
-                            session_data = {
-                                "id": len(st.session_state.chat_sessions),
-                                "title": session_title,
-                                "messages": st.session_state.messages.copy(),
-                                "user": st.session_state.current_user,
-                                "timestamp": st.session_state.messages[0]["content"] if st.session_state.messages else ""
-                            }
-                            st.session_state.chat_sessions.append(session_data)
-                            st.session_state.current_session_id = len(st.session_state.chat_sessions) - 1
-                        else:
-                            # Update existing session
-                            session_idx = st.session_state.current_session_id
-                            if session_idx < len(st.session_state.chat_sessions):
-                                st.session_state.chat_sessions[session_idx]["messages"] = st.session_state.messages.copy()
-                                
-                    else:
-                        st.warning("⚠️ That time slot is already booked.")
-                        st.info("Here are some alternate time suggestions:")
-
-                        st.session_state.options = [
-                            start + timedelta(hours=1),
-                            start + timedelta(hours=2),
-                            start + timedelta(hours=3)
-                        ]
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": "Time is busy. Suggested options: " + ", ".join(
-                                slot.strftime("%A %I:%M %p") for slot in st.session_state.options
-                            )
-                        })
-
-    # ⏱ Suggested time rebooking buttons
-    if st.session_state.options:
-        st.markdown("---")
-        st.subheader("🕓 Suggested Time Slots")
-        for slot in st.session_state.options:
-            btn_label = slot.strftime("%A %I:%M %p")
-            if st.button(btn_label):
-                end = slot + timedelta(minutes=30)
-                invitees = run_langgraph_agent(st.session_state.last_input).get("invitees", [])
-                if is_time_slot_free(slot.isoformat(), end.isoformat()):
-                    result = book_event_at(slot, 30, st.session_state.last_input, invitees)
-
-                    start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
-                    end_fmt = isoparse(result['end']).strftime("%I:%M %p")
-
-                    confirm_msg = f"✅ Meeting rescheduled from **{start_fmt} to {end_fmt}**. [View on Google Calendar]({result['link']})"
-                    st.success(f"✅ Meeting booked at {btn_label}!")
-                    st.markdown(f"🕒 {start_fmt} to {end_fmt}")
-                    st.markdown(f"🔗 [View on Google Calendar]({result['link']})")
-                    st.session_state.messages.append({"role": "assistant", "content": confirm_msg})
-                    st.session_state.options = []
                     
                     # Auto-save session after successful booking
                     if st.session_state.current_session_id is None:
@@ -228,13 +281,89 @@ with col2:
                         session_idx = st.session_state.current_session_id
                         if session_idx < len(st.session_state.chat_sessions):
                             st.session_state.chat_sessions[session_idx]["messages"] = st.session_state.messages.copy()
-                    break
+
+    # ⏱ Suggested time rebooking buttons
+    if st.session_state.options:
+        st.markdown("---")
+        st.subheader("🕓 Suggested Time Slots")
+        for slot in st.session_state.options:
+            btn_label = slot.strftime("%A %I:%M %p")
+            if st.button(btn_label):
+                end = slot + timedelta(minutes=30)
+                try:
+                    invitees = run_langgraph_agent(st.session_state.last_input).get("invitees", [])
+                except:
+                    invitees = []
+                
+                try:
+                    if st.session_state.calendar_available and is_time_slot_free(slot.isoformat(), end.isoformat()):
+                        result = book_event_at(slot, 30, st.session_state.last_input, invitees)
+                        
+                        start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
+                        end_fmt = isoparse(result['end']).strftime("%I:%M %p")
+
+                        confirm_msg = f"✅ Meeting rescheduled from **{start_fmt} to {end_fmt}**. [View on Google Calendar]({result['link']})"
+                        st.success(f"✅ Meeting booked at {btn_label}!")
+                        st.markdown(f"🕒 {start_fmt} to {end_fmt}")
+                        st.markdown(f"🔗 [View on Google Calendar]({result['link']})")
+                        st.session_state.messages.append({"role": "assistant", "content": confirm_msg})
+                        
+                    else:
+                        # Demo mode or slot busy
+                        if not st.session_state.calendar_available:
+                            result = create_mock_booking(slot, 30, st.session_state.last_input, invitees)
+                            save_booking_locally(result)
+                            
+                            start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
+                            end_fmt = isoparse(result['end']).strftime("%I:%M %p")
+
+                            confirm_msg = f"✅ Meeting scheduled from **{start_fmt} to {end_fmt}**. [Add to Google Calendar]({result['link']})"
+                            st.success(f"✅ Meeting scheduled at {btn_label}! (Demo Mode)")
+                            st.markdown(f"🕒 {start_fmt} to {end_fmt}")
+                            st.markdown(f"🔗 [Add to Google Calendar]({result['link']})")
+                            st.session_state.messages.append({"role": "assistant", "content": confirm_msg})
+                        else:
+                            st.warning(f"Slot {btn_label} is already booked.")
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"❌ {btn_label} is also booked. Try another slot."
+                            })
+                            continue
+                    
+                except Exception as e:
+                    # Fallback to demo mode
+                    result = create_mock_booking(slot, 30, st.session_state.last_input, invitees)
+                    save_booking_locally(result)
+                    
+                    start_fmt = isoparse(result['start']).strftime("%A, %d %B %Y — %I:%M %p")
+                    end_fmt = isoparse(result['end']).strftime("%I:%M %p")
+
+                    confirm_msg = f"✅ Meeting scheduled from **{start_fmt} to {end_fmt}**. [Add to Google Calendar]({result['link']})"
+                    st.success(f"✅ Meeting scheduled at {btn_label}! (Demo Mode)")
+                    st.markdown(f"🕒 {start_fmt} to {end_fmt}")
+                    st.markdown(f"🔗 [Add to Google Calendar]({result['link']})")
+                    st.session_state.messages.append({"role": "assistant", "content": confirm_msg})
+                
+                st.session_state.options = []
+                
+                # Auto-save session after successful booking
+                if st.session_state.current_session_id is None:
+                    session_title = f"Booking by {st.session_state.current_user}"
+                    session_data = {
+                        "id": len(st.session_state.chat_sessions),
+                        "title": session_title,
+                        "messages": st.session_state.messages.copy(),
+                        "user": st.session_state.current_user,
+                        "timestamp": st.session_state.messages[0]["content"] if st.session_state.messages else ""
+                    }
+                    st.session_state.chat_sessions.append(session_data)
+                    st.session_state.current_session_id = len(st.session_state.chat_sessions) - 1
                 else:
-                    st.warning(f"Slot {btn_label} is already booked.")
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": f"❌ {btn_label} is also booked. Try another slot."
-                    })
+                    # Update existing session
+                    session_idx = st.session_state.current_session_id
+                    if session_idx < len(st.session_state.chat_sessions):
+                        st.session_state.chat_sessions[session_idx]["messages"] = st.session_state.messages.copy()
+                break
 
     # Display chat history in the main area
     if st.session_state.messages:
@@ -255,24 +384,29 @@ with col2:
                 content = message['content']
                 
                 # Check if it's a booking confirmation message
-                if "✅ Meeting booked" in content and "[View on Google Calendar]" in content:
+                if "✅ Meeting booked" in content or "✅ Meeting scheduled" in content:
                     # Extract the calendar link
                     import re
-                    link_match = re.search(r'\[View on Google Calendar\]\((https?://[^\)]+)\)', content)
+                    link_match = re.search(r'\[(?:View on Google Calendar|Add to Google Calendar)\]\((https?://[^\)]+)\)', content)
                     calendar_link = link_match.group(1) if link_match else "#"
                     
                     # Extract booking details
                     details = content.split('**')[1] if '**' in content else 'Meeting scheduled'
+                    
+                    # Determine if it's demo mode
+                    is_demo = "Add to Google Calendar" in content
+                    demo_text = " (Demo Mode)" if is_demo else ""
+                    action_text = "Add to" if is_demo else "View on"
                     
                     # Format as a booking confirmation card
                     st.markdown(f"""
                     <div style="background-color: #e8f5e8; padding: 15px; border-radius: 10px; margin: 10px 0; border-left: 4px solid #4CAF50; color: #1a1a1a;">
                         <strong style="color: #2d5016;">🤖 TailorTalk AI:</strong><br>
                         <div style="margin-top: 8px;">
-                            <span style="color: #155724; font-weight: bold;">✅ Meeting Successfully Booked!</span><br>
+                            <span style="color: #155724; font-weight: bold;">✅ Meeting Successfully Scheduled{demo_text}!</span><br>
                             <span style="color: #333333;"><strong>📅 Time:</strong> {details}</span><br>
                             <a href="{calendar_link}" target="_blank" style="color: #1976d2; text-decoration: none; font-weight: bold;">
-                                🔗 View on Google Calendar →
+                                🔗 {action_text} Google Calendar →
                             </a>
                         </div>
                     </div>
@@ -312,6 +446,22 @@ with col2:
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+
+    # Show local bookings in demo mode
+    if not st.session_state.calendar_available and "local_bookings" in st.session_state and st.session_state.local_bookings:
+        st.markdown("---")
+        st.subheader("📋 Your Scheduled Meetings (Demo Mode)")
+        
+        for i, booking in enumerate(st.session_state.local_bookings):
+            start_fmt = isoparse(booking['start']).strftime("%A, %d %B %Y — %I:%M %p")
+            end_fmt = isoparse(booking['end']).strftime("%I:%M %p")
+            
+            with st.expander(f"Meeting {i+1}: {start_fmt}"):
+                st.write(f"**Time:** {start_fmt} to {end_fmt}")
+                st.write(f"**Description:** {booking['description']}")
+                if booking['invitees']:
+                    st.write(f"**Invitees:** {', '.join(booking['invitees'])}")
+                st.markdown(f"[Add to Google Calendar]({booking['link']})")
 
 # Add some custom CSS for better styling
 st.markdown("""
