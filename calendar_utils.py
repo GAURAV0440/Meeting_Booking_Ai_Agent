@@ -1,6 +1,8 @@
 import os
 import pickle
-from dotenv import load_dotenv
+import json
+import streamlit as st
+from tempfile import NamedTemporaryFile
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
@@ -8,11 +10,14 @@ from googleapiclient.errors import HttpError
 from dateutil.parser import isoparse
 from datetime import timezone, datetime, timedelta
 
-load_dotenv()
+# ✅ Load config from Streamlit secrets
+SCOPES = [st.secrets["SCOPES"]]
+REDIRECT_URI = st.secrets["GOOGLE_REDIRECT_URI"]
 
-SCOPES = [os.getenv("SCOPES")]
-CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+# ✅ Write credentials JSON from secrets to a temp file
+with NamedTemporaryFile(delete=False, suffix=".json") as tmp:
+    tmp.write(st.secrets["GOOGLE_CREDENTIALS_JSON"].encode())
+    CLIENT_SECRETS_FILE = tmp.name
 
 
 def get_auth_url():
