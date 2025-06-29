@@ -1,6 +1,6 @@
 import streamlit as st
-from services.agent_logic import run_langgraph_agent
-from services.calendar_utils import is_time_slot_free, book_event_at
+from agent_logic import run_langgraph_agent
+from calendar_utils import is_time_slot_free, book_event_at
 from dateutil.parser import isoparse
 from datetime import timedelta
 
