@@ -5,6 +5,8 @@ from dateutil.parser import isoparse
 from datetime import timedelta
 import json
 import os
+from calendar_utils import get_auth_url, exchange_code_for_token
+from urllib.parse import urlparse, parse_qs
 
 st.set_page_config(page_title="TailorTalk AI", layout="wide")
 
@@ -162,7 +164,22 @@ with col1:
     else:
         st.markdown("**Current:** No active session")
 
-# Right column - Main booking area
+if not os.path.exists("token.pkl"):
+    st.warning("🔐 You need to connect your Google Calendar to book meetings.")
+    auth_url = get_auth_url()
+    st.markdown(f"[Click here to authorize Google Calendar access]({auth_url})")
+
+    # Capture the code returned to the redirect URI (if present)
+    query_params = st.query_params
+    if "code" in query_params:
+        code = query_params["code"]
+        if isinstance(code, list):
+            code = code[0]
+        exchange_code_for_token(code)
+        st.success("✅ Google Calendar connected! Please refresh the app.")
+        st.stop()
+    else:
+        st.stop()
 with col2:
     st.title("🧵 TailorTalk AI - Smart Meeting Booker")
     
