@@ -156,3 +156,6 @@ def book_event_at(start_time_obj, duration_minutes, description, invitees=None):
     except Exception as e:
         print(f"❌ Booking failed: {e}")
         raise
+
+def is_authenticated():
+    return os.path.exists("token.pkl")
