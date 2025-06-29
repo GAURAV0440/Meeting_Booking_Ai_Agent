@@ -10,9 +10,9 @@ from googleapiclient.errors import HttpError
 from dateutil.parser import isoparse
 from datetime import timezone, datetime, timedelta
 
-# ✅ Load config from Streamlit secrets
-SCOPES = [st.secrets["SCOPES"]]
-REDIRECT_URI = st.secrets["GOOGLE_REDIRECT_URI"]
+# ✅ Load REDIRECT_URI and SCOPES from Streamlit secrets or fallback to .env
+REDIRECT_URI = st.secrets.get("GOOGLE_REDIRECT_URI") or os.getenv("GOOGLE_REDIRECT_URI")
+SCOPES = [st.secrets.get("SCOPES") or os.getenv("SCOPES")]
 
 # ✅ Write credentials JSON from secrets to a temp file
 with NamedTemporaryFile(delete=False, suffix=".json") as tmp:
